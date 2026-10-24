@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # PUC Center Manager
 
 A complete, professional web application for running a **PUC (Pollution Under Control) center** in India.
@@ -217,3 +218,6 @@ src/
 | WhatsApp does not open | Allow pop-ups for the page, or install WhatsApp Desktop. You can also click **Copy Text** and paste the message into WhatsApp manually. |
 | Data disappeared | Browser storage was cleared. Restore your JSON backup from **Settings → Data**. |
 | Excel file not read | Make sure the first sheet has a header row and the file is `.xlsx`, `.xls` or `.csv`. |
+=======
+# PUC_Center
+>>>>>>> b5780a54eb64ec6aa6dd071d43bb6d63be06bd3a
