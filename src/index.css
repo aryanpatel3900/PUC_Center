@@ -1,0 +1,57 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  @apply bg-slate-50 font-sans text-navy-800 antialiased;
+  font-feature-settings: 'cv11';
+}
+
+/* Gujarati text rendering */
+:lang(gu),
+[lang="gu"] {
+  font-family: 'Noto Sans Gujarati', 'Nirmala UI', 'Shruti', sans-serif;
+}
+
+/* Consistent focus visibility for keyboard users */
+:focus-visible {
+  @apply outline-none ring-2 ring-brand-500 ring-offset-2 ring-offset-white;
+}
+
+/* Thin, subtle scrollbars for tables and sidebars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Date inputs: keep them readable on Windows */
+input[type='date'] {
+  min-height: 40px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
