@@ -13,6 +13,18 @@ describe('phoneUtils', () => {
     expect(normalizeMobile('919876543210')).toBe('9876543210')
     expect(normalizeMobile('09876543210')).toBe('9876543210')
     expect(normalizeMobile('98765-43210')).toBe('9876543210')
+    expect(normalizeMobile('+919876543210')).toBe('9876543210')
+    expect(normalizeMobile('91-9876543210')).toBe('9876543210')
+    expect(normalizeMobile('0 98765 43210')).toBe('9876543210')
+  })
+
+  it('handles Excel numeric cells, floats and scientific notation', () => {
+    expect(normalizeMobile(9876543210)).toBe('9876543210') // numeric cell
+    expect(normalizeMobile('9876543210.0')).toBe('9876543210') // float display
+    expect(normalizeMobile('9.87654321E+9')).toBe('9876543210') // scientific notation
+    expect(normalizeMobile('9.87654321e9')).toBe('9876543210')
+    expect(normalizeMobile(NaN)).toBe(null)
+    expect(normalizeMobile(Infinity)).toBe(null)
   })
 
   it('rejects invalid numbers', () => {

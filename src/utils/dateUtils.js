@@ -91,12 +91,15 @@ export function formatTimestamp(isoTs) {
 
 /**
  * Parse a date that may come from an Excel cell, a text input, or a Date object.
- * Accepts: 'YYYY-MM-DD', 'DD/MM/YYYY', 'DD-MM-YYYY', 'D/M/YYYY', Excel serial
- * numbers, and Date instances.
+ * Accepts: 'YYYY-MM-DD', 'YYYY/MM/DD', 'DD/MM/YYYY', 'DD-MM-YYYY', 'DD.MM.YYYY',
+ * 'MM/DD/YYYY' (when unambiguous), D/M/YY, dates with a time part
+ * ('24/10/2026 00:00:00', '2026-10-24 12:00:00'), Excel serial numbers, and
+ * Date instances.
  *
  * Indian convention is DD/MM/YYYY. When both parts could be a month (e.g.
  * 05/04/2026) the day-first interpretation is used and `ambiguous` is flagged
- * so the UI can show it to the user instead of guessing silently.
+ * so the UI can show it to the user instead of guessing silently. When only one
+ * reading is valid (12/25/2026 → month-first) it is used without ambiguity.
  *
  * Returns { iso, ok, ambiguous, reason }.
  */
@@ -113,29 +116,43 @@ export function parseDateValue(value) {
     return parseExcelSerial(value)
   }
 
-  const s = String(value).trim()
+  let s = String(value).trim()
 
-  // ISO format
-  if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(s)) {
-    const [y, m, d] = s.split('-').map(Number)
+  // Strip a trailing time part: '24/10/2026 00:00:00', '2026-10-24 12:00:00', '... 5:30 PM'
+  s = s.replace(/[ T]\d{1,2}:\d{2}(:\d{2}(\.\d+)?)?\s*([AaPp]\.?[Mm]\.?)?$/, '').trim() || s
+
+  // ISO-ish: YYYY-MM-DD, YYYY/MM/DD, YYYY.MM.DD
+  const isoMatch = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/)
+  if (isoMatch) {
+    const [, y, m, d] = isoMatch.map(Number)
     const iso = `${y}-${pad(m)}-${pad(d)}`
     if (!isValidISO(iso)) return { iso: '', ok: false, ambiguous: false, reason: `"${s}" is not a valid date` }
     return { iso, ok: true, ambiguous: false, reason: '' }
   }
 
-  // Excel serial stored as text
+  // Excel serial stored as text — only plausible modern serials (≈1927–2118),
+  // so a bare year like '2026' is not silently read as a 1905 date.
   if (/^\d+(\.\d+)?$/.test(s)) {
     const n = Number(s)
-    if (n >= 1 && n < 200000) return parseExcelSerial(n)
+    if (n >= 10000 && n <= 80000) return parseExcelSerial(n)
   }
 
-  // DD/MM/YYYY or DD-MM-YYYY (also D/M/YY)
+  // DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY (also D/M/YY and M/D/YYYY)
   const m1 = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/)
   if (m1) {
-    let [, a, b, cy] = m1.map(Number)
+    const a = Number(m1[1])
+    const b = Number(m1[2])
+    const cy = Number(m1[3])
     const year = cy < 100 ? 2000 + cy : cy
-    const day = a
-    const month = b
+    let day = a
+    let month = b
+    if (a > 12 && b <= 12) {
+      // e.g. 25/12/2026 — day first (Indian), unambiguous
+    } else if (b > 12 && a <= 12) {
+      // e.g. 12/25/2026 — month first (US style), unambiguous
+      month = a
+      day = b
+    }
     const ambiguous = day <= 12 && month <= 12 && day !== month
     if (month < 1 || month > 12 || day < 1 || day > 31) {
       return { iso: '', ok: false, ambiguous: false, reason: `"${s}" is not a valid date (expected DD/MM/YYYY)` }
@@ -148,8 +165,10 @@ export function parseDateValue(value) {
   return { iso: '', ok: false, ambiguous: false, reason: `"${s}" is not a recognised date (use DD/MM/YYYY)` }
 }
 
+// Plausible Excel serial range for real-world dates: ≈1927-03-18 … 2118-04-11.
+// Anything outside is reported as "not a date" instead of guessing a 190x/220x date.
 function parseExcelSerial(serial) {
-  if (!Number.isFinite(serial) || serial < 1 || serial >= 200000) {
+  if (!Number.isFinite(serial) || serial < 10000 || serial > 80000) {
     return { iso: '', ok: false, ambiguous: false, reason: `Excel serial "${serial}" is out of range` }
   }
   // Excel's day 1 = 1899-12-31, but the common epoch offset used by SheetJS

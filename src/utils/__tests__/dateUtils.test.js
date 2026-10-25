@@ -65,6 +65,25 @@ describe('dateUtils', () => {
     expect(parseDateValue('46023').iso).toBe('2026-01-01') // serial stored as text
     expect(parseDateValue(0).ok).toBe(false)
     expect(parseDateValue(-5).ok).toBe(false)
+    expect(parseDateValue(5000).ok).toBe(false) // implausibly old serial → not guessed
+    expect(parseDateValue('2026').ok).toBe(false) // bare year must not become 1905-06-26
+  })
+
+  it('parses the extra formats found in real Excel / CSV files', () => {
+    expect(parseDateValue('2026-12-05')).toMatchObject({ iso: '2026-12-05', ok: true }) // ISO
+    expect(parseDateValue('2026/12/05')).toMatchObject({ iso: '2026-12-05', ok: true }) // YYYY/MM/DD
+    expect(parseDateValue('2026.12.05')).toMatchObject({ iso: '2026-12-05', ok: true }) // YYYY.MM.DD
+    expect(parseDateValue('05.01.2027')).toMatchObject({ iso: '2027-01-05', ok: true }) // DD.MM.YYYY
+    expect(parseDateValue('30/12/2026 00:00:00')).toMatchObject({ iso: '2026-12-30', ok: true }) // datetime suffix
+    expect(parseDateValue('2026-10-24 12:00:00')).toMatchObject({ iso: '2026-10-24', ok: true })
+    expect(parseDateValue('24/10/2026 5:30 PM')).toMatchObject({ iso: '2026-10-24', ok: true })
+    expect(parseDateValue('30/12/26').iso).toBe('2026-12-30') // 2-digit year
+    expect(parseDateValue('30/12/2026').ambiguous).toBe(false) // day > 12 → clearly day-first
+  })
+
+  it('reads month-first dates when only that reading is valid', () => {
+    const r = parseDateValue('12/25/2026') // 25 cannot be a month
+    expect(r).toMatchObject({ iso: '2026-12-25', ok: true, ambiguous: false })
   })
 
   it('adds months with day clamping', () => {

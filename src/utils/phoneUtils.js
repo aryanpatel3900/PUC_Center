@@ -2,14 +2,27 @@
 
 /**
  * Normalise any user input to a bare 10-digit Indian mobile number.
- * Handles: spaces, dashes, dots, leading +91 / 91 / 0 prefixes.
+ * Handles: strings and numbers (Excel numeric cells), scientific notation
+ * ('9.87654321E+9'), spaces, dashes, dots, leading +91 / 91 / 0 prefixes.
  * Returns the 10-digit string, or null when the input is not a valid
  * Indian mobile number.
  */
 export function normalizeMobile(input) {
   if (input === null || input === undefined) return null
+  if (typeof input === 'number') {
+    if (!Number.isFinite(input)) return null
+    input = String(input)
+  }
   let s = String(input).trim()
   if (!s) return null
+
+  // Excel sometimes shows big numbers in scientific notation: 9.87654321E+9
+  if (/^\d+(\.\d+)?[eE][+-]?\d+$/.test(s)) {
+    const n = Number(s)
+    if (Number.isFinite(n)) s = String(Math.round(n))
+  }
+  // Numeric cells may arrive as 9876543210.0
+  if (/^\d+\.0+$/.test(s)) s = s.split('.')[0]
 
   // Keep a leading + only to strip it with the digits below.
   s = s.replace(/[^\d]/g, '')
