@@ -142,12 +142,23 @@ export default function ExcelImport() {
   const invalidRecords = records.filter((r) => !r.valid)
   const duplicateRecords = validRecords.filter((r) => r.duplicate)
 
-  const doImport = () => {
-    const res = importRecords(records, dupMode)
-    setSummary(res)
-    setConfirmOpen(false)
-    setStep(3)
-    toast.success(`Import finished: ${res.imported} added, ${res.updated} updated.`)
+  const [importing, setImporting] = useState(false)
+
+  const doImport = async () => {
+    setImporting(true)
+    try {
+      const res = await importRecords(records, dupMode)
+      if (!res.ok) {
+        toast.error(res.error || 'Import could not be saved to Supabase. Your existing records are unchanged.')
+        return
+      }
+      setSummary(res)
+      setConfirmOpen(false)
+      setStep(3)
+      toast.success(`Import saved: ${res.imported} added, ${res.updated} updated, ${res.skipped} duplicates skipped, ${res.invalid} invalid.`)
+    } finally {
+      setImporting(false)
+    }
   }
 
   const errorPages = Math.max(1, Math.ceil(invalidRecords.length / ERROR_PAGE_SIZE))
@@ -235,7 +246,7 @@ export default function ExcelImport() {
             )}
           </div>
           <p className="mt-4 text-xs text-slate-400">
-            Nothing is uploaded to the internet — the file is read inside your browser only. Existing records are never deleted by an import.
+            The spreadsheet is read in your browser. Valid customer records are sent to your authenticated Supabase account when you confirm. Existing records are never deleted by an import.
           </p>
         </div>
       ) : null}
@@ -496,10 +507,10 @@ export default function ExcelImport() {
             </button>
             <button
               onClick={() => setConfirmOpen(true)}
-              disabled={!validRecords.length}
+              disabled={!validRecords.length || importing}
               className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <CheckCircle2 className="h-4 w-4" /> Import {validRecords.length} Valid Record(s)
+              {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} {importing ? 'Saving to Supabase…' : `Import ${validRecords.length} Valid Record(s)`}
             </button>
             <button onClick={reset} className="rounded-lg px-3 py-2 text-sm font-medium text-slate-500 hover:text-navy-800">
               Cancel
@@ -608,6 +619,7 @@ export default function ExcelImport() {
         open={confirmOpen}
         onClose={() => setConfirmOpen(false)}
         onConfirm={doImport}
+        busy={importing}
         title="Confirm import"
         message={
           <p>
@@ -616,7 +628,7 @@ export default function ExcelImport() {
             never deleted by an import. Continue?
           </p>
         }
-        confirmLabel="Yes, import now"
+        confirmLabel={importing ? 'Saving to Supabase…' : 'Yes, import now'}
       />
     </div>
   )

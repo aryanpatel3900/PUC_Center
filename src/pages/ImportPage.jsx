@@ -1,5 +1,5 @@
 import ExcelImport from '../components/ExcelImport'
-import { FileSpreadsheet, ShieldCheck } from 'lucide-react'
+import { FileSpreadsheet, Cloud } from 'lucide-react'
 
 /** Import Excel / CSV customers page. */
 export default function ImportPage() {
@@ -15,8 +15,8 @@ export default function ImportPage() {
             automatically — then check the preview and confirm.
           </p>
         </div>
-        <p className="flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800">
-          <ShieldCheck className="h-4 w-4" aria-hidden="true" /> 100% offline — files never leave this computer
+        <p className="flex items-center gap-1.5 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-medium text-sky-800">
+          <Cloud className="h-4 w-4" aria-hidden="true" /> Valid customer records are saved securely to Supabase
         </p>
       </div>
       <ExcelImport />

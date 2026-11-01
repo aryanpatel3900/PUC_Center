@@ -1,5 +1,5 @@
 // Excel / CSV import and export built on SheetJS (xlsx).
-// All parsing happens in the browser — files never leave the computer.
+// Parsing is local; valid customer records are sent to Supabase only after confirmation.
 //
 // The importer is deliberately "smart":
 //   1. It scans the first rows to FIND the header row (headers are not always row 1).

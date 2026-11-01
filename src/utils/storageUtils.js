@@ -1,7 +1,5 @@
-// Local storage layer: versioned key, migrations, backup and restore.
-//
-// Everything stays in the browser's localStorage on this computer. No data is
-// ever sent to a server.
+// Legacy browser-storage reader for one-time cloud migration, plus JSON backup helpers.
+// New customer and reminder changes are stored in Supabase by DataContext.
 
 import { DEFAULT_INTERVALS, DEFAULT_INTERVALS as IV } from './reminderUtils'
 import { defaultTemplates } from './messageTemplates'

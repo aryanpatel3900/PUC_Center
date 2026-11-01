@@ -25,6 +25,7 @@ export default function CustomerForm({ open, onClose, customer = null, onSaved }
   const [form, setForm] = useState(EMPTY)
   const [errors, setErrors] = useState({})
   const [pendingDuplicate, setPendingDuplicate] = useState(null)
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     if (open) {
@@ -60,20 +61,27 @@ export default function CustomerForm({ open, onClose, customer = null, onSaved }
     return Object.keys(errs).length === 0
   }
 
-  const attemptSave = (allowDuplicate = false) => {
+  const attemptSave = async (allowDuplicate = false) => {
     if (!validate()) return
-    const result = customer
-      ? updateCustomer(customer.id, form, { allowDuplicate })
-      : addCustomer(form, { allowDuplicate })
+    setSaving(true)
+    try {
+      const result = customer
+        ? await updateCustomer(customer.id, form, { allowDuplicate })
+        : await addCustomer(form, { allowDuplicate })
 
-    if (result.ok) {
-      toast.success(customer ? 'Customer updated successfully.' : result.updated ? 'Existing vehicle updated.' : 'Customer added successfully.')
-      onSaved?.(result)
-      onClose()
-    } else if (result.duplicateOf) {
-      setPendingDuplicate(result.duplicateOf)
-    } else if (result.errors) {
-      setErrors(result.errors)
+      if (result.ok) {
+        toast.success(customer ? 'Customer updated successfully.' : result.updated ? 'Existing vehicle updated.' : 'Customer added successfully.')
+        onSaved?.(result)
+        onClose()
+      } else if (result.duplicateOf) {
+        setPendingDuplicate(result.duplicateOf)
+      } else if (result.errors) {
+        setErrors(result.errors)
+      } else if (result.error) {
+        toast.error(result.error)
+      }
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -112,15 +120,17 @@ export default function CustomerForm({ open, onClose, customer = null, onSaved }
           <>
             <button
               onClick={onClose}
+              disabled={saving}
               className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-navy-700 transition hover:bg-slate-50"
             >
               Cancel
             </button>
             <button
-              onClick={() => attemptSave(false)}
-              className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-700"
+              onClick={() => void attemptSave(false)}
+              disabled={saving}
+              className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:opacity-60"
             >
-              {customer ? 'Save Changes' : 'Add Customer'}
+              {saving ? 'Saving…' : customer ? 'Save Changes' : 'Add Customer'}
             </button>
           </>
         }
@@ -165,7 +175,7 @@ export default function CustomerForm({ open, onClose, customer = null, onSaved }
         onClose={() => setPendingDuplicate(null)}
         onConfirm={() => {
           setPendingDuplicate(null)
-          attemptSave(true)
+          void attemptSave(true)
         }}
         title="Vehicle number already exists"
         message={

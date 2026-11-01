@@ -17,6 +17,7 @@ export default function ConfirmDialog({
   cancelLabel = 'Cancel',
   danger = false,
   requireText = null,
+  busy = false,
 }) {
   const [typed, setTyped] = useState('')
 
@@ -42,10 +43,10 @@ export default function ConfirmDialog({
           </button>
           <button
             onClick={() => {
-              if (!matches) return
+              if (!matches || busy) return
               onConfirm()
             }}
-            disabled={!matches}
+            disabled={!matches || busy}
             className={`rounded-lg px-4 py-2 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-50 ${
               danger ? 'bg-red-600 hover:bg-red-700' : 'bg-brand-600 hover:bg-brand-700'
             }`}

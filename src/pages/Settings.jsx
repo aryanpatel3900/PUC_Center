@@ -20,11 +20,10 @@ import { useToast } from '../context/ToastContext'
 import { downloadTemplate, exportCustomers, exportReminders } from '../utils/excelUtils'
 import { defaultTemplates, PLACEHOLDER_HELP, buildMessage } from '../utils/messageTemplates'
 import { DEFAULT_INTERVALS } from '../utils/reminderUtils'
-import { storageAvailable } from '../utils/storageUtils'
 
 /** Settings: center info, reminder options, message templates, data tools. */
 export default function Settings() {
-  const { settings, updateSettings, customers, reminders, today, backupNow, restoreFromBackup, clearAll, clearSamples, loadSamples } = useData()
+  const { settings, updateSettings, customers, reminders, today, backupNow, restoreFromBackup, clearAll, clearSamples, loadSamples, signOut } = useData()
   const toast = useToast()
   const restoreInput = useRef(null)
 
@@ -42,8 +41,8 @@ export default function Settings() {
         : { ...f.templates, [key]: value },
     }))
 
-  const save = () => {
-    updateSettings({
+  const save = async () => {
+    const saved = await updateSettings({
       centerName: form.centerName.trim() || 'PUC Center',
       contactNumber: form.contactNumber.trim(),
       address: form.address.trim(),
@@ -55,14 +54,15 @@ export default function Settings() {
       pageSize: Number(form.pageSize) || 25,
       templates: form.templates,
     })
-    toast.success('Settings saved.')
+    if (saved) toast.success('Settings saved.')
+    else toast.error('Settings could not be saved. Check your connection and try again.')
   }
 
   const onRestore = async (file) => {
     if (!file) return
     const res = await restoreFromBackup(file)
     if (res.ok) {
-      toast.success(`Backup restored — ${res.customers.length} customers loaded.`)
+      toast.success(`Backup restored — ${res.customers} customers loaded.`)
       setRestoreInfo(null)
     } else {
       toast.error(res.error)
@@ -253,21 +253,14 @@ export default function Settings() {
             <h2 className="flex items-center gap-2 text-base font-semibold text-navy-800">
               <HardDrive className="h-5 w-5 text-brand-600" aria-hidden="true" /> Data Storage
             </h2>
-            {storageAvailable() ? (
-              <p className="mt-1 text-sm text-slate-500">
-                All {customers.length} customer(s) and {reminders.length} reminder record(s) are saved in <strong>this browser</strong> on this
-                computer (localStorage). Data does NOT sync to other computers or browsers, and it is lost if browser storage is cleared — so
-                download a JSON backup regularly.
-              </p>
-            ) : (
-              <p className="mt-1 text-sm font-medium text-red-600">
-                Browser storage is not available in this browser. The app will not be able to save data — please use a normal browser window.
-              </p>
-            )}
+            <p className="mt-1 text-sm text-slate-500">
+              {customers.length} customer(s) and {reminders.length} reminder record(s) are stored in your authenticated Supabase account and
+              load automatically on other devices. JSON backups are still available as an extra safety copy.
+            </p>
             <div className="mt-4 flex flex-wrap gap-2">
               <button
-                onClick={() => {
-                  backupNow()
+                onClick={async () => {
+                  await backupNow()
                   toast.success('JSON backup downloaded. Keep the file somewhere safe.')
                 }}
                 className="inline-flex items-center gap-1.5 rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700"
@@ -323,13 +316,19 @@ export default function Settings() {
               Sample records (marked with a SAMPLE badge) help you try the app. Removing them never touches your real customer records.
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
-              <button onClick={loadSamples} className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-navy-700 hover:bg-slate-50">
+              <button
+                onClick={async () => {
+                  if (await loadSamples()) toast.success('Sample records saved to Supabase.')
+                  else toast.error('Sample records could not be saved.')
+                }}
+                className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-navy-700 hover:bg-slate-50"
+              >
                 Load Sample Records
               </button>
               <button
-                onClick={() => {
-                  clearSamples()
-                  toast.success('Sample records removed. Real customers were not affected.')
+                onClick={async () => {
+                  if (await clearSamples()) toast.success('Sample records removed. Real customers were not affected.')
+                  else toast.error('Sample records could not be removed.')
                 }}
                 className="rounded-xl border border-violet-300 bg-violet-50 px-4 py-2 text-sm font-medium text-violet-700 hover:bg-violet-100"
               >
@@ -343,13 +342,19 @@ export default function Settings() {
               <Trash2 className="h-5 w-5" aria-hidden="true" /> Danger Zone
             </h2>
             <p className="mt-1 text-sm text-slate-500">
-              Delete all customer data and reminder history from this browser. Settings are kept. This cannot be undone — take a backup first.
+              Delete all customer data and reminder history from Supabase for this center. Settings are kept. This cannot be undone — take a backup first.
             </p>
             <button
               onClick={() => setConfirmClear(true)}
               className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
             >
               <Trash2 className="h-4 w-4" /> Clear All Customer Data
+            </button>
+            <button
+              onClick={() => void signOut()}
+              className="mt-4 ml-2 inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-navy-700 hover:bg-slate-50"
+            >
+              Lock (Sign out)
             </button>
           </section>
         </div>
@@ -392,16 +397,20 @@ export default function Settings() {
       <ConfirmDialog
         open={confirmClear}
         onClose={() => setConfirmClear(false)}
-        onConfirm={() => {
-          clearAll()
-          setConfirmClear(false)
-          toast.success('All customer data cleared. Settings were kept.')
+        onConfirm={async () => {
+          const saved = await clearAll()
+          if (saved) {
+            setConfirmClear(false)
+            toast.success('All customer data cleared. Settings were kept.')
+          } else {
+            toast.error('Customer data could not be cleared. Check your connection and try again.')
+          }
         }}
         title="Clear ALL customer data?"
         danger
         requireText="DELETE"
         confirmLabel="Delete everything"
-        message="Every customer, reminder record and activity entry will be permanently deleted from this browser. Settings are kept. Download a backup first if you may need this data later."
+        message="Every customer, reminder record and activity entry for this center will be permanently deleted from Supabase. Settings are kept. Download a backup first if you may need this data later."
       />
 
       <ConfirmDialog
@@ -414,8 +423,8 @@ export default function Settings() {
         message={
           restoreInfo ? (
             <p>
-              Restore from <strong>{restoreInfo.name}</strong>? This <strong>replaces</strong> all current customers, reminders and history in
-              this browser with the backup's contents.
+              Restore from <strong>{restoreInfo.name}</strong>? This <strong>replaces</strong> all current customers, reminders and history
+              for this center with the backup's contents.
             </p>
           ) : null
         }

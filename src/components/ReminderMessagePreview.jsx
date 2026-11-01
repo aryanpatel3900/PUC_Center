@@ -66,9 +66,12 @@ export default function ReminderMessagePreview({ record, open, onClose, notice }
     }
   }
 
-  const handleConfirmSent = () => {
-    saveReminderMessage(record.id, text)
-    markReminderSent(record.id)
+  const handleConfirmSent = async () => {
+    const saved = await markReminderSent(record.id, '', text)
+    if (!saved) {
+      toast.error('Reminder status could not be saved. Check your connection before closing this message.')
+      return
+    }
     setConfirmSend(false)
     toast.success(`${record.interval}-day reminder marked as sent and confirmed.`)
     onClose()

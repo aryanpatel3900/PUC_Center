@@ -261,10 +261,14 @@ export default function CustomerDetailPage() {
       <ConfirmDialog
         open={confirmDelete}
         onClose={() => setConfirmDelete(false)}
-        onConfirm={() => {
-          deleteCustomer(customer.id)
-          toast.success('Customer deleted.')
-          navigate('/customers')
+        onConfirm={async () => {
+          const saved = await deleteCustomer(customer.id)
+          if (saved) {
+            toast.success('Customer deleted.')
+            navigate('/customers')
+          } else {
+            toast.error('Customer could not be deleted. Check your connection and try again.')
+          }
         }}
         title="Delete customer?"
         danger

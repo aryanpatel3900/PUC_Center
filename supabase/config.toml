@@ -1,0 +1,6 @@
+project_id = "puc-center-manager"
+
+# The PIN screen calls this function before sign-in, so there is no user JWT
+# yet. The function itself enforces the PIN and rate limits failed attempts.
+[functions.puc-unlock]
+verify_jwt = false
