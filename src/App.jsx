@@ -287,7 +287,7 @@ function AuthenticatedApp() {
       <div className="flex min-h-screen items-center justify-center bg-slate-50">
         <div className="flex items-center gap-3 rounded-xl bg-white px-5 py-4 text-sm font-medium text-navy-800 shadow-card">
           <Loader2 className="h-5 w-5 animate-spin text-brand-600" aria-hidden="true" />
-          {authStatus === 'checking' ? 'Checking secure sign-in…' : 'Loading your customers from Supabase…'}
+          {authStatus === 'checking' ? 'Checking secure sign-in…' : null}
         </div>
       </div>
     )

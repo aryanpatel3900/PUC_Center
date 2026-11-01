@@ -311,7 +311,39 @@ describe('Duplicate detection', () => {
   it('treats spaced, dashed and compact vehicle numbers as the same vehicle', () => {
     expect(vehicleKey('GJ 01 AB 1234')).toBe(vehicleKey('GJ01AB1234'))
     expect(vehicleKey('gj01ab1234')).toBe('GJ01AB1234')
+    expect(vehicleKey('GJ-01-AB-1234')).toBe('GJ01AB1234')
     expect(canonicalVehicleNumber('  gj   01 ab-1234 ')).toBe('GJ 01 AB-1234')
+  })
+
+  it('marks in-file duplicates that differ so they can be flagged for review', () => {
+    const rows = [
+      ['Customer Name', 'Mobile', 'Vehicle Number', 'PUC Expiry Date'],
+      ['First Owner', '9876543210', 'GJ01AB1234', '30/12/2026'],
+      ['Second Owner', '9123456780', 'GJ01 AB 1234', '15/12/2026'],
+    ]
+    const parsed = parseRows(rows, 0, autoMapColumns(rows[0]), [])
+    expect(parsed[1].duplicate.reason).toMatch(/earlier row/i)
+    expect(parsed[1].duplicate.reason).toMatch(/differs in/i)
+    expect(parsed[1].duplicate.reason).toMatch(/expiry date/i)
+  })
+
+  it('rejects vehicle numbers with no letters or digits instead of merging them', () => {
+    const rows = [
+      ['Customer Name', 'Mobile', 'Vehicle Number', 'PUC Expiry Date'],
+      ['First Owner', '9876543210', '---', '30/12/2026'],
+      ['Second Owner', '9123456780', '   ', '15/12/2026'],
+    ]
+    const parsed = parseRows(rows, 0, autoMapColumns(rows[0]), [])
+    expect(parsed[0].valid).toBe(false)
+    expect(parsed[0].errors.join(' ')).toMatch(/letters or digits/i)
+    expect(parsed[1].valid).toBe(false)
+    expect(parsed[1].errors.join(' ')).toMatch(/missing/i)
+  })
+
+  it('matches the database unique index normalization (all punctuation ignored)', () => {
+    // Must stay identical to regexp_replace(upper(vehicle_number), '[^A-Z0-9]', '', 'g')
+    expect(vehicleKey('GJ-01/AB 1234')).toBe('GJ01AB1234')
+    expect(vehicleKey('gj.01 ab*1234')).toBe('GJ01AB1234')
   })
 })
 

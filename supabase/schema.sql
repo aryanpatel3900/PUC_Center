@@ -21,6 +21,10 @@ create table if not exists public.puc_customers (
   primary key (center_id, id)
 );
 
+-- Database-level duplicate protection: two customers in one center can never
+-- share the same normalized vehicle number, even during simultaneous imports
+-- (a conflicting insert aborts the whole save with SQLSTATE 23505).
+-- Normalization here MUST stay identical to vehicleKey() in src/utils/excelUtils.js.
 create unique index if not exists puc_customers_center_vehicle_key
   on public.puc_customers (center_id, (regexp_replace(upper(vehicle_number), '[^A-Z0-9]', '', 'g')));
 

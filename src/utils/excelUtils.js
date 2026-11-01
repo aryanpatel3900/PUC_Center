@@ -405,13 +405,34 @@ export function analyzeWorkbook(wb) {
 /* ------------------------------------------------------------------ */
 
 function normalizeVehicleNumber(v) {
+  // MUST stay identical to the database unique index in supabase/schema.sql:
+  //   regexp_replace(upper(vehicle_number), '[^A-Z0-9]', '', 'g')
+  // Case, spaces, hyphens, dots and any other punctuation are ignored, so
+  // "GJ-01-AB-1234", "GJ 01 AB 1234" and "gj01ab1234" are one vehicle.
   return String(v ?? '')
     .toUpperCase()
-    .replace(/[\s\-\.]/g, '')
+    .replace(/[^A-Z0-9]/g, '')
 }
 
 export function vehicleKey(v) {
   return normalizeVehicleNumber(v)
+}
+
+/**
+ * Customer fields where `incoming` differs from `existing`.
+ * Blank incoming fields mean "no information" and never count as a difference
+ * (a spreadsheet row without an email must not flag a conflict on email).
+ * Returns human-readable labels, e.g. ['expiry date', 'name'].
+ */
+export function diffCustomerFields(existing, incoming) {
+  const diffs = []
+  if (incoming.pucExpiryDate && incoming.pucExpiryDate !== existing.pucExpiryDate) diffs.push('expiry date')
+  if (incoming.name && incoming.name !== existing.name) diffs.push('name')
+  if (incoming.mobile && incoming.mobile !== existing.mobile) diffs.push('mobile')
+  if (incoming.vehicleType && incoming.vehicleType !== existing.vehicleType) diffs.push('vehicle type')
+  if (incoming.email && incoming.email !== existing.email) diffs.push('email')
+  if (incoming.address && incoming.address !== existing.address) diffs.push('address')
+  return diffs
 }
 
 /** Canonical (stored) vehicle number: uppercase, single spaces, tidy separators. */
@@ -454,6 +475,7 @@ export function parseRow(row, mapping, rowNum, existingKeys = new Map(), existin
 
   const vehicleNumber = canonicalVehicleNumber(raw.vehicleNumber)
   if (!vehicleNumber) errors.push('Vehicle number is missing')
+  else if (!vehicleKey(vehicleNumber)) errors.push(`Vehicle number "${vehicleNumber}" must contain letters or digits`)
 
   let vehicleType = String(raw.vehicleType ?? '').trim()
   if (vehicleType) {
@@ -475,22 +497,28 @@ export function parseRow(row, mapping, rowNum, existingKeys = new Map(), existin
   }
 
   const email = String(raw.email ?? '').trim()
-  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+  const emailClean = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : ''
+  if (email && !emailClean) {
     warnings.push(`Email "${email}" looks invalid and will be left blank`)
   }
   const address = String(raw.address ?? '').trim()
 
-  // Strong duplicate: same vehicle number already exists.
+  // Strong duplicate: same normalized vehicle number already exists.
+  // (Phone numbers are never used to identify duplicates.)
   let duplicate = null
   let possibleDuplicate = ''
-  if (vehicleNumber) {
-    const existing = existingKeys.get(normalizeVehicleNumber(vehicleNumber))
+  const vehicleLookupKey = vehicleKey(vehicleNumber)
+  if (vehicleLookupKey) {
+    const existing = existingKeys.get(vehicleLookupKey)
     if (existing) {
+      const diffs = diffCustomerFields(existing, { name, mobile, vehicleType, pucExpiryDate: dateResult.iso, email: emailClean, address })
       duplicate = {
         id: existing.id,
         name: existing.name,
         pucExpiryDate: existing.pucExpiryDate,
-        reason: `Vehicle ${existing.vehicleNumber || vehicleNumber} already exists`,
+        reason: `Vehicle ${existing.vehicleNumber || vehicleNumber} already exists${
+          diffs.length ? ` — differs in: ${diffs.join(', ')}` : ' — same details'
+        }`,
       }
     } else if (mobile && name) {
       const samePerson = existingNameMobile.get(nameKey(name, mobile))
@@ -509,7 +537,7 @@ export function parseRow(row, mapping, rowNum, existingKeys = new Map(), existin
     vehicleNumber,
     vehicleType,
     pucExpiryDate: dateResult.iso,
-    email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : '',
+    email: emailClean,
     address,
     errors,
     warnings,
@@ -530,12 +558,13 @@ export function parseRows(rows, headerRowIndex, mapping, existingCustomers = [],
   const existingKeys = new Map()
   const existingNameMobile = new Map()
   for (const c of existingCustomers || []) {
-    existingKeys.set(normalizeVehicleNumber(c.vehicleNumber), c)
+    const vk = vehicleKey(c.vehicleNumber)
+    if (vk) existingKeys.set(vk, c) // blank vehicle numbers never match a row
     const m = normalizeMobile(c.mobile)
     if (m) existingNameMobile.set(nameKey(c.name, m), c)
   }
 
-  const seenVehicles = new Set()
+  const seenVehicles = new Map() // vehicleKey -> first valid record of this file
   const seenNameMobile = new Set()
   const records = []
   const start = Math.max(headerRowIndex + 1, 0)
@@ -548,11 +577,20 @@ export function parseRows(rows, headerRowIndex, mapping, existingCustomers = [],
 
     // In-file duplicates (only valid rows can consume a "first occurrence").
     if (rec.valid && rec.vehicleNumber) {
-      const vk = normalizeVehicleNumber(rec.vehicleNumber)
-      if (seenVehicles.has(vk)) {
-        rec.duplicate = { id: null, name: rec.name, pucExpiryDate: rec.pucExpiryDate, reason: 'Same vehicle as an earlier row in this file' }
-      } else {
-        seenVehicles.add(vk)
+      const vk = vehicleKey(rec.vehicleNumber)
+      if (vk) {
+        const first = seenVehicles.get(vk)
+        if (first) {
+          const diffs = diffCustomerFields(first, rec)
+          rec.duplicate = {
+            id: null,
+            name: rec.name,
+            pucExpiryDate: rec.pucExpiryDate,
+            reason: `Same vehicle as an earlier row in this file${diffs.length ? ` — differs in: ${diffs.join(', ')}` : ' — same details'}`,
+          }
+        } else {
+          seenVehicles.set(vk, rec)
+        }
       }
     }
     if (rec.valid && rec.mobile && rec.name && !rec.duplicate) {

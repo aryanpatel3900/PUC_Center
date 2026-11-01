@@ -155,7 +155,8 @@ export default function ExcelImport() {
       setSummary(res)
       setConfirmOpen(false)
       setStep(3)
-      toast.success(`Import saved: ${res.imported} added, ${res.updated} updated, ${res.skipped} duplicates skipped, ${res.invalid} invalid.`)
+      const conflictNote = res.conflicts ? `, ${res.conflicts} conflicts flagged for review` : ''
+      toast.success(`Import saved: ${res.imported} added, ${res.updated} updated, ${res.skipped} duplicates skipped${conflictNote}, ${res.invalid} invalid.`)
     } finally {
       setImporting(false)
     }
@@ -531,9 +532,30 @@ export default function ExcelImport() {
             <SummaryTile label="Successfully imported" value={summary.imported} tone="text-emerald-600" />
             <SummaryTile label="Existing records updated" value={summary.updated} tone="text-brand-700" />
             <SummaryTile label="Duplicates skipped" value={summary.skipped} tone="text-amber-600" />
+            <SummaryTile label="Conflicts requiring review" value={summary.conflicts} tone="text-orange-600" />
             <SummaryTile label="Need correction (not imported)" value={summary.needsCorrection} tone="text-red-600" />
             <SummaryTile label="Valid records imported" value={summary.imported + summary.updated} tone="text-emerald-600" />
           </div>
+          {summary.conflicts > 0 && summary.conflictList?.length ? (
+            <div className="mt-4 rounded-xl border border-orange-200 bg-orange-50 p-4">
+              <p className="text-sm font-semibold text-orange-900">
+                {summary.conflicts} row(s) have the same vehicle but different details from the record kept. They were NOT imported —
+                review them and correct your file if needed:
+              </p>
+              <ul className="mt-2 max-h-56 space-y-1.5 overflow-y-auto">
+                {summary.conflictList.slice(0, 50).map((c, i) => (
+                  <li key={`${c.rowNum ?? 'x'}-${i}`} className="rounded-lg bg-white/70 px-3 py-2 text-sm text-orange-900">
+                    <span className="font-semibold">{c.rowNum ? `Row ${c.rowNum}` : 'Record'}</span>
+                    <span className="font-mono"> · {c.vehicleNumber}</span>
+                    <span> — {c.fields.join(', ')} {c.fields.length > 1 ? 'differ' : 'differs'} from the {c.keptFrom}</span>
+                  </li>
+                ))}
+                {summary.conflictList.length > 50 ? (
+                  <li className="px-3 text-xs text-orange-700">…and {summary.conflictList.length - 50} more</li>
+                ) : null}
+              </ul>
+            </div>
+          ) : null}
           <div className="mt-6 flex flex-wrap gap-2">
             <button
               onClick={() => navigate('/customers')}
@@ -623,7 +645,9 @@ export default function ExcelImport() {
         title="Confirm import"
         message={
           <p>
-            {validRecords.length} valid record(s) will be saved ({dupMode === 'skip' ? 'duplicates skipped' : 'existing records updated'})
+            {validRecords.length} valid record(s) will be saved ({dupMode === 'skip'
+              ? 'duplicate vehicles skipped, rows conflicting with the kept record are flagged for review'
+              : 'existing records updated, conflicting duplicate rows inside the file are flagged for review'})
             {invalidRecords.length ? `, ${invalidRecords.length} record(s) needing correction will be left out` : ''}. Your existing data is
             never deleted by an import. Continue?
           </p>

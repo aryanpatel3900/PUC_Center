@@ -308,7 +308,7 @@ export function DataProvider({ children }) {
     const next = {
       ...state,
       customers,
-      activity: withActivity(state, 'import', `Import: ${summary.total} rows — ${summary.imported} added, ${summary.updated} updated, ${summary.skipped} duplicates skipped, ${summary.invalid} invalid`),
+      activity: withActivity(state, 'import', `Import: ${summary.total} rows — ${summary.imported} added, ${summary.updated} updated, ${summary.skipped} duplicates skipped, ${summary.conflicts} conflicts flagged for review, ${summary.invalid} invalid`),
     }
     return (await commitState(next)) ? { ...summary, ok: true } : { ...summary, ok: false, error: 'Import was not saved. Check the database error and try again.' }
   }, [commitState, state])
