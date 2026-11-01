@@ -7,6 +7,7 @@ import Dashboard from './pages/Dashboard'
 import Customers from './pages/Customers'
 import CustomerDetailPage from './pages/CustomerDetailPage'
 import ImportPage from './pages/ImportPage'
+import ImportHistory from './pages/ImportHistory'
 import ReminderCenter from './pages/ReminderCenter'
 import History from './pages/History'
 import Reports from './pages/Reports'
@@ -85,6 +86,7 @@ function Layout() {
             <Route path="/customers" element={<Customers />} />
             <Route path="/customers/:id" element={<CustomerDetailPage />} />
             <Route path="/import" element={<ImportPage />} />
+            <Route path="/imports" element={<ImportHistory />} />
             <Route path="/reminders" element={<ReminderCenter />} />
             <Route path="/history" element={<History />} />
             <Route path="/reports" element={<Reports />} />

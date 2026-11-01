@@ -147,7 +147,7 @@ export default function ExcelImport() {
   const doImport = async () => {
     setImporting(true)
     try {
-      const res = await importRecords(records, dupMode)
+      const res = await importRecords(records, dupMode, fileName)
       if (!res.ok) {
         toast.error(res.error || 'Import could not be saved to Supabase. Your existing records are unchanged.')
         return
@@ -571,6 +571,12 @@ export default function ExcelImport() {
             </button>
             <button onClick={reset} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-navy-700 hover:bg-slate-50">
               Import Another File
+            </button>
+            <button
+              onClick={() => navigate('/imports')}
+              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-navy-700 hover:bg-slate-50"
+            >
+              Import History
             </button>
           </div>
         </div>

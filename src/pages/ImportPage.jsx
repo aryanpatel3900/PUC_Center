@@ -1,5 +1,6 @@
 import ExcelImport from '../components/ExcelImport'
-import { FileSpreadsheet, Cloud } from 'lucide-react'
+import { FileSpreadsheet, Cloud, FileClock } from 'lucide-react'
+import { Link } from 'react-router-dom'
 
 /** Import Excel / CSV customers page. */
 export default function ImportPage() {
@@ -15,9 +16,17 @@ export default function ImportPage() {
             automatically — then check the preview and confirm.
           </p>
         </div>
-        <p className="flex items-center gap-1.5 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-medium text-sky-800">
-          <Cloud className="h-4 w-4" aria-hidden="true" /> Valid customer records are saved securely to Supabase
-        </p>
+        <div className="flex flex-col items-start gap-2">
+          <p className="flex items-center gap-1.5 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-medium text-sky-800">
+            <Cloud className="h-4 w-4" aria-hidden="true" /> Valid customer records are saved securely to Supabase
+          </p>
+          <Link
+            to="/imports"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-navy-700 transition hover:bg-slate-50"
+          >
+            <FileClock className="h-4 w-4" aria-hidden="true" /> View Import History
+          </Link>
+        </div>
       </div>
       <ExcelImport />
     </div>

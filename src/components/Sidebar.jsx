@@ -26,6 +26,7 @@ const GROUPS = [
     items: [
       { to: '/customers', label: 'Customers', icon: Users },
       { to: '/import', label: 'Import Excel', icon: FileSpreadsheet },
+      { to: '/imports', label: 'Import History', icon: History },
     ],
   },
   {

@@ -6,7 +6,7 @@ import { normalizeMobile } from '../utils/phoneUtils'
 import { formatDate, todayISO } from '../utils/dateUtils'
 import { buildSampleData } from '../utils/sampleData'
 import { mergeImportedCustomers } from '../utils/customerImportUtils'
-import { checkAuthorizedUser, isSupabaseConfigured, loadCloudState, saveCloudState, supabase, unlockWithPin } from '../utils/supabaseClient'
+import { checkAuthorizedUser, deleteImportBatchRpc, isSupabaseConfigured, loadCloudState, saveCloudState, supabase, unlockWithPin } from '../utils/supabaseClient'
 
 const DataContext = createContext(null)
 const MAX_ACTIVITY = 300
@@ -159,14 +159,14 @@ export function DataProvider({ children }) {
     return () => clearInterval(timer)
   }, [])
 
-  const commitState = useCallback(async (next) => {
+  const commitState = useCallback(async (next, { importBatch = null } = {}) => {
     const committingUserId = userIdRef.current
     if (!committingUserId || authStatus !== 'ready') {
       setDatabaseError('You are not connected to the database. Your change was not saved.')
       return false
     }
     try {
-      const nextRevision = await saveCloudState(next, revision)
+      const nextRevision = await saveCloudState(next, revision, importBatch)
       if (userIdRef.current !== committingUserId) return false
       setState(next)
       setRevision(nextRevision)
@@ -303,15 +303,66 @@ export function DataProvider({ children }) {
     return commitState(next)
   }, [commitState, state])
 
-  const importRecords = useCallback(async (records, mode = 'skip') => {
-    const { customers, summary } = mergeImportedCustomers(state.customers, records, mode, () => uid('c'))
+  const importRecords = useCallback(async (records, mode = 'skip', fileName = '') => {
+    // The batch timestamp is the same one given to newly created customers,
+    // so "edited since import" comparisons are exact.
+    const importedAt = new Date().toISOString()
+    const { customers, summary } = mergeImportedCustomers(state.customers, records, mode, () => uid('c'), importedAt)
     const next = {
       ...state,
       customers,
       activity: withActivity(state, 'import', `Import: ${summary.total} rows — ${summary.imported} added, ${summary.updated} updated, ${summary.skipped} duplicates skipped, ${summary.conflicts} conflicts flagged for review, ${summary.invalid} invalid`),
     }
-    return (await commitState(next)) ? { ...summary, ok: true } : { ...summary, ok: false, error: 'Import was not saved. Check the database error and try again.' }
+    // Saved in the same database transaction as the customers; the database
+    // itself records which customer ids this import created.
+    const importBatch = {
+      filename: fileName || 'Unnamed file',
+      importedAt,
+      totalRows: summary.total,
+      importedCount: summary.imported,
+      skippedCount: summary.skipped,
+      conflictsCount: summary.conflicts,
+      invalidCount: summary.invalid,
+    }
+    return (await commitState(next, { importBatch }))
+      ? { ...summary, ok: true }
+      : { ...summary, ok: false, error: 'Import was not saved. Check the database error and try again.' }
   }, [commitState, state])
+
+  const deleteImportBatch = useCallback(async (batch, plan, includeEdited = false) => {
+    if (!supabase) return { ok: false, error: 'Supabase is not configured.' }
+    const committingUserId = userIdRef.current
+    const activityId = uid('a')
+    const filename = batch?.filename || 'Unnamed file'
+    // Edited records are only "kept" when the user did NOT include them.
+    const keptEdited = includeEdited ? 0 : plan.editedIds.length
+    const keptNote = keptEdited ? ` (${keptEdited} edited record(s) kept)` : ''
+    const activityText = `Deleted import "${filename}" — ${plan.targetIds.length} customer record(s) removed${keptNote}`
+    try {
+      // The database deletes ONLY ids that belong to this batch and re-checks
+      // the "edited" rule; older records, manual customers and pre-existing
+      // duplicate vehicles can never be reached.
+      const result = await deleteImportBatchRpc(batch.id, plan.targetIds, includeEdited, activityId, activityText)
+      if (userIdRef.current !== committingUserId) return { ok: false, error: 'Signed out during the delete.' }
+      setState((prev) => {
+        const removed = new Set(plan.targetIds)
+        return {
+          ...prev,
+          customers: prev.customers.filter((customer) => !removed.has(customer.id)),
+          activity: [
+            { id: activityId, type: 'import_deleted', text: activityText, at: new Date().toISOString() },
+            ...prev.activity,
+          ].slice(0, MAX_ACTIVITY),
+        }
+      })
+      setRevision(result.revision)
+      setDatabaseError('')
+      return { ok: true, deletedCustomers: result.deletedCustomers, keptEdited }
+    } catch (error) {
+      setDatabaseError(error.message || 'The import batch could not be deleted.')
+      return { ok: false, error: error.message || 'The import batch could not be deleted.' }
+    }
+  }, [])
 
   const updateReminder = useCallback(async (id, transform, activityType, activityText) => {
     const reminder = state.reminders.find((item) => item.id === id)
@@ -511,6 +562,7 @@ export function DataProvider({ children }) {
     updateCustomer,
     deleteCustomer,
     importRecords,
+    deleteImportBatch,
     markReminderSent,
     recordWhatsAppOpen,
     saveReminderMessage,
@@ -527,7 +579,7 @@ export function DataProvider({ children }) {
   }), [
     state, today, databaseError, authStatus, authError, user, unlock, signOut, retryLoad,
     localMigrationAvailable, migrationBusy, migrateLocalData, fmtDate, getCustomer, addCustomer,
-    updateCustomer, deleteCustomer, importRecords, markReminderSent, recordWhatsAppOpen,
+    updateCustomer, deleteCustomer, importRecords, deleteImportBatch, markReminderSent, recordWhatsAppOpen,
     saveReminderMessage, skipReminder, cancelReminder, resetReminder, updateSettings, addActivity,
     restoreFromBackup, clearAll, clearSamples, loadSamples, backupNow,
   ])

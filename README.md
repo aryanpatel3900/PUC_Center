@@ -21,7 +21,7 @@ The website opens with a simple 4-digit PIN screen. The PIN is verified **server
 
 1. Go to [supabase.com](https://supabase.com), sign in, and create a project for your PUC center.
 2. Save the database password somewhere private. Wait until the project says it is ready.
-3. Open **SQL Editor** in the Supabase dashboard, choose **New query**, and run the contents of [`supabase/schema.sql`](./supabase/schema.sql). This creates the tables, access policies, duplicate protection, and database save functions.
+3. Open **SQL Editor** in the Supabase dashboard, choose **New query**, and run the contents of [`supabase/schema.sql`](./supabase/schema.sql). This creates the tables, access policies, duplicate protection, and database save functions. (Already created the project earlier? Run [`supabase/migrations/20261101120000_import_batches.sql`](./supabase/migrations/20261101120000_import_batches.sql) instead — it adds the Import History feature on top of an existing database. Both files are safe to re-run.)
 
 ### 2. Create and authorize the app account
 
@@ -151,6 +151,17 @@ Vercel environment values are applied at build time. Redeploy after editing them
 4. Confirm the import. The app only reports a successful import after Supabase accepts the save. If the connection or database fails, the import is not applied in the app and an error is displayed; correct the issue and retry.
 
 Vehicle numbers are normalized before duplicate checks, and the database enforces uniqueness per authorized account as a final safeguard. Uploading the same file again will not create duplicate vehicles.
+
+### Import History and deleting an import
+
+Every confirmed import is recorded in **Import History** (sidebar → Customers → Import History) with the file name, date/time, total rows, imported count and duplicate-skipped count.
+
+1. Open **Import History** and press **Delete Imported Data** on an import.
+2. The confirmation dialog shows the file name and exactly how many customer records will be deleted.
+3. Confirm to remove **only the customer records that import created**. Manually added customers, older data, and vehicles that already existed before the import (skipped duplicates) are never deleted.
+4. If a record from the import was edited afterwards, it is kept by default; the dialog warns you and only deletes edited records when you explicitly tick the box. Linked reminder history is kept for audit (pending reminders of deleted customers are cancelled automatically).
+
+Deletion runs through a database function with Row Level Security: it can only reach the customer ids belonging to that import batch.
 
 ## WhatsApp reminders
 

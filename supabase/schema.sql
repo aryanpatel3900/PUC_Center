@@ -54,6 +54,26 @@ create table if not exists public.puc_activity (
   primary key (center_id, id)
 );
 
+-- One row per confirmed Excel import. created_customer_ids lists exactly the
+-- customer records this import created (decided by the database itself), so
+-- "Delete Imported Data" can remove only those records and never older or
+-- manually added customers.
+create table if not exists public.puc_import_batches (
+  id uuid primary key default gen_random_uuid(),
+  center_id uuid not null default '00000000-0000-0000-0000-000000000001',
+  filename text not null,
+  imported_at timestamptz not null default now(),
+  total_rows integer not null default 0,
+  imported_count integer not null default 0,
+  skipped_count integer not null default 0,
+  conflicts_count integer not null default 0,
+  invalid_count integer not null default 0,
+  created_customer_ids text[] not null default '{}'
+);
+
+create index if not exists puc_import_batches_center_imported_at
+  on public.puc_import_batches (center_id, imported_at desc);
+
 create table if not exists public.puc_center_settings (
   center_id uuid primary key default '00000000-0000-0000-0000-000000000001',
   settings jsonb not null default '{}'::jsonb,
@@ -84,6 +104,7 @@ alter table public.puc_authorized_users enable row level security;
 alter table public.puc_customers enable row level security;
 alter table public.puc_reminders enable row level security;
 alter table public.puc_activity enable row level security;
+alter table public.puc_import_batches enable row level security;
 alter table public.puc_center_settings enable row level security;
 
 drop policy if exists puc_authorized_users_read_self on public.puc_authorized_users;
@@ -108,6 +129,14 @@ create policy puc_activity_owner_access on public.puc_activity
   using (center_id = '00000000-0000-0000-0000-000000000001' and public.is_authorized_puc_user())
   with check (center_id = '00000000-0000-0000-0000-000000000001' and public.is_authorized_puc_user());
 
+-- The browser may only READ import history; batch rows are written and
+-- removed by SECURITY DEFINER functions so created-customer tracking and
+-- batch deletion always pass server-side validation.
+drop policy if exists puc_import_batches_owner_read on public.puc_import_batches;
+create policy puc_import_batches_owner_read on public.puc_import_batches
+  for select to authenticated
+  using (center_id = '00000000-0000-0000-0000-000000000001' and public.is_authorized_puc_user());
+
 drop policy if exists puc_settings_owner_access on public.puc_center_settings;
 create policy puc_settings_owner_access on public.puc_center_settings
   for all to authenticated
@@ -117,17 +146,61 @@ create policy puc_settings_owner_access on public.puc_center_settings
 revoke all on public.puc_authorized_users from anon, authenticated;
 grant select on public.puc_authorized_users to authenticated;
 grant select, insert, update, delete on public.puc_customers, public.puc_reminders, public.puc_activity, public.puc_center_settings to authenticated;
+revoke all on public.puc_import_batches from anon, authenticated;
+grant select on public.puc_import_batches to authenticated;
 
 insert into public.puc_center_settings (center_id, settings, revision)
 values ('00000000-0000-0000-0000-000000000001', '{}'::jsonb, 0)
 on conflict (center_id) do nothing;
+
+create or replace function public.record_puc_import_batch(
+  p_batch jsonb,
+  p_created_customer_ids text[]
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_id uuid;
+begin
+  if auth.uid() is null or not public.is_authorized_puc_user() then
+    raise exception 'User is not authorized to manage this PUC center.';
+  end if;
+
+  insert into public.puc_import_batches (
+    id, center_id, filename, imported_at, total_rows, imported_count,
+    skipped_count, conflicts_count, invalid_count, created_customer_ids
+  )
+  values (
+    coalesce((p_batch->>'id')::uuid, gen_random_uuid()),
+    '00000000-0000-0000-0000-000000000001',
+    coalesce(nullif(trim(coalesce(p_batch->>'filename', '')), ''), 'Unnamed file'),
+    coalesce((p_batch->>'imported_at')::timestamptz, now()),
+    coalesce((p_batch->>'total_rows')::int, 0),
+    coalesce((p_batch->>'imported_count')::int, 0),
+    coalesce((p_batch->>'skipped_count')::int, 0),
+    coalesce((p_batch->>'conflicts_count')::int, 0),
+    coalesce((p_batch->>'invalid_count')::int, 0),
+    coalesce(p_created_customer_ids, '{}')
+  )
+  returning id into v_id;
+
+  return v_id;
+end;
+$$;
+
+revoke all on function public.record_puc_import_batch(jsonb, text[]) from public, anon;
+grant execute on function public.record_puc_import_batch(jsonb, text[]) to authenticated;
 
 create or replace function public.save_puc_center_state(
   p_customers jsonb,
   p_reminders jsonb,
   p_activity jsonb,
   p_settings jsonb,
-  p_expected_revision bigint
+  p_expected_revision bigint,
+  p_import_batch jsonb default null
 )
 returns bigint
 language plpgsql
@@ -159,6 +232,25 @@ begin
       revision = current_revision + 1,
       updated_at = now()
   where center_id = '00000000-0000-0000-0000-000000000001';
+
+  -- When this save is an Excel import, record the batch in the same
+  -- transaction. Which customers it "created" is decided by the database
+  -- (ids in the payload that do not exist yet), never by the browser.
+  if p_import_batch is not null then
+    perform public.record_puc_import_batch(
+      p_batch := p_import_batch,
+      p_created_customer_ids := (
+        select coalesce(array_agg(c.id), '{}')
+        from jsonb_to_recordset(coalesce(p_customers, '[]'::jsonb)) as c(id text)
+        where not exists (
+          select 1
+          from public.puc_customers pc
+          where pc.center_id = '00000000-0000-0000-0000-000000000001'
+            and pc.id = c.id
+        )
+      )
+    );
+  end if;
 
   insert into public.puc_customers (
     id, center_id, name, mobile, vehicle_number, vehicle_type, puc_expiry_date,
@@ -217,5 +309,90 @@ begin
 end;
 $$;
 
-revoke all on function public.save_puc_center_state(jsonb, jsonb, jsonb, jsonb, bigint) from public, anon;
-grant execute on function public.save_puc_center_state(jsonb, jsonb, jsonb, jsonb, bigint) to authenticated;
+revoke all on function public.save_puc_center_state(jsonb, jsonb, jsonb, jsonb, bigint, jsonb) from public, anon;
+grant execute on function public.save_puc_center_state(jsonb, jsonb, jsonb, jsonb, bigint, jsonb) to authenticated;
+
+create or replace function public.delete_puc_import_batch(
+  p_batch_id uuid,
+  p_customer_ids jsonb default null,
+  p_force boolean default false,
+  p_activity_id text default null,
+  p_activity_text text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_batch public.puc_import_batches%rowtype;
+  v_ids text[];
+  v_edited text[];
+  v_deleted integer;
+  v_revision bigint;
+begin
+  if auth.uid() is null or not public.is_authorized_puc_user() then
+    raise exception 'User is not authorized to manage this PUC center.';
+  end if;
+
+  select * into v_batch
+  from public.puc_import_batches
+  where center_id = '00000000-0000-0000-0000-000000000001' and id = p_batch_id;
+
+  if not found then
+    raise exception 'This import batch was not found. It may already be deleted — refresh the list.';
+  end if;
+
+  -- Only customer ids that belong to THIS batch can ever be deleted here.
+  -- Anything else (older records, manual customers, skipped duplicates) is
+  -- impossible to reach, even if the browser asks for it.
+  select coalesce(array_agg(x), '{}') into v_ids
+  from unnest(v_batch.created_customer_ids) as x
+  where p_customer_ids is null
+     or exists (select 1 from jsonb_array_elements_text(p_customer_ids) as t(id) where t.id = x);
+
+  -- Records edited after the import must never be deleted silently.
+  select coalesce(array_agg(c.id), '{}') into v_edited
+  from public.puc_customers c
+  where c.center_id = '00000000-0000-0000-0000-000000000001'
+    and c.id = any(v_ids)
+    and c.updated_at > v_batch.imported_at;
+
+  if coalesce(array_length(v_edited, 1), 0) > 0 and not p_force then
+    raise exception '% customer record(s) from this import were edited later and will not be deleted without explicit confirmation.',
+      array_length(v_edited, 1);
+  end if;
+
+  delete from public.puc_customers
+  where center_id = '00000000-0000-0000-0000-000000000001'
+    and id = any(v_ids)
+    and (p_force or updated_at <= v_batch.imported_at);
+  get diagnostics v_deleted = row_count;
+
+  delete from public.puc_import_batches
+  where center_id = '00000000-0000-0000-0000-000000000001' and id = p_batch_id;
+
+  update public.puc_center_settings
+  set revision = revision + 1, updated_at = now()
+  where center_id = '00000000-0000-0000-0000-000000000001'
+  returning revision into v_revision;
+
+  insert into public.puc_activity (id, center_id, type, text, at)
+  values (
+    coalesce(nullif(trim(coalesce(p_activity_id, '')), ''), ('a_' || to_char(now(), 'YYYYMMDDHH24MISSMS') || '_' || substr(md5(random()::text), 1, 6))),
+    '00000000-0000-0000-0000-000000000001',
+    'import_deleted',
+    coalesce(nullif(trim(coalesce(p_activity_text, '')), ''), 'Deleted an import batch'),
+    now()
+  );
+
+  return jsonb_build_object(
+    'revision', v_revision,
+    'deleted_customers', v_deleted,
+    'kept_edited', coalesce(array_length(v_edited, 1), 0)
+  );
+end;
+$$;
+
+revoke all on function public.delete_puc_import_batch(uuid, jsonb, boolean, text, text) from public, anon;
+grant execute on function public.delete_puc_import_batch(uuid, jsonb, boolean, text, text) to authenticated;

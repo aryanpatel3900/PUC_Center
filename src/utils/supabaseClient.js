@@ -150,7 +150,7 @@ export async function loadCloudState() {
   }
 }
 
-export async function saveCloudState(state, revision) {
+export async function saveCloudState(state, revision, importBatch = null) {
   if (!supabase) throw new Error('Supabase is not configured.')
   const { data, error } = await supabase.rpc('save_puc_center_state', {
     p_customers: state.customers.map((customer) => ({
@@ -188,7 +188,71 @@ export async function saveCloudState(state, revision) {
     })),
     p_settings: state.settings,
     p_expected_revision: revision,
+    // When this save comes from an Excel import, the database records the
+    // batch in the same transaction and computes which customers it created.
+    p_import_batch: importBatch
+      ? {
+          filename: importBatch.filename,
+          imported_at: importBatch.importedAt,
+          total_rows: importBatch.totalRows,
+          imported_count: importBatch.importedCount,
+          skipped_count: importBatch.skippedCount,
+          conflicts_count: importBatch.conflictsCount,
+          invalid_count: importBatch.invalidCount,
+        }
+      : null,
   })
   if (error) throw new Error(getSupabaseError(error))
   return Number(data)
+}
+
+/** All Excel import batches, newest first (read-only; RLS limits them to this center). */
+export async function listImportBatches() {
+  if (!supabase) throw new Error('Supabase is not configured.')
+  const rows = []
+  for (let offset = 0; ; offset += 1000) {
+    const { data, error } = await supabase
+      .from('puc_import_batches')
+      .select('*')
+      .order('imported_at', { ascending: false })
+      .order('id', { ascending: false })
+      .range(offset, offset + 999)
+    if (error) throw new Error(getSupabaseError(error))
+    rows.push(...data)
+    if (data.length < 1000) break
+  }
+  return rows.map((row) => ({
+    id: row.id,
+    filename: row.filename,
+    importedAt: row.imported_at,
+    totalRows: row.total_rows,
+    importedCount: row.imported_count,
+    skippedCount: row.skipped_count,
+    conflictsCount: row.conflicts_count,
+    invalidCount: row.invalid_count,
+    createdCustomerIds: row.created_customer_ids || [],
+  }))
+}
+
+/**
+ * Delete one import batch: only the customer records that batch created.
+ * The database refuses to touch anything else (older/manual records) and
+ * refuses edited records unless `force` is set. Returns the RPC result:
+ * { revision, deleted_customers, kept_edited }.
+ */
+export async function deleteImportBatchRpc(batchId, customerIds, force, activityId, activityText) {
+  if (!supabase) throw new Error('Supabase is not configured.')
+  const { data, error } = await supabase.rpc('delete_puc_import_batch', {
+    p_batch_id: batchId,
+    p_customer_ids: Array.isArray(customerIds) ? customerIds : null,
+    p_force: Boolean(force),
+    p_activity_id: activityId || null,
+    p_activity_text: activityText || null,
+  })
+  if (error) throw new Error(getSupabaseError(error))
+  return {
+    revision: Number(data?.revision) || 0,
+    deletedCustomers: Number(data?.deleted_customers) || 0,
+    keptEdited: Number(data?.kept_edited) || 0,
+  }
 }
